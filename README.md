@@ -1,6 +1,6 @@
 # Parent Field
 
-- Version: 0.1
+- Version: 0.2
 - Author: James West (james@jameswest.co.nz)
 - Build Date: 12th February 2012
 - Requirements: Symphony 2.2 or greater

@@ -5,7 +5,7 @@
 		public function about(){
 			return array(
 				'name' => 'Field: Parent',
-				'version' => '0.1',
+				'version' => '0.2',
 				'release-date' => '12-02-2012',
 				'author' => array(
 					array(
