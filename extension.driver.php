@@ -21,6 +21,16 @@
 				)
 			);
 		}
+		
+		public function getSubscribedDelegates(){
+			return array(
+				array(
+				'page'		=> '/backend/',
+				'delegate'	=> 'NavigationPreRender',
+				'callback'	=> 'NavigationPreRender'
+				)
+			);
+		}		
 
 		public function install(){
 			try{
@@ -60,4 +70,28 @@
 
 			return true;
 		}
+		
+		function NavigationPreRender($context){
+			$sections_to_filter = $this->getSectionsWithParentField();
+			
+			foreach ($context['navigation'] as &$navigation_group ) {
+				foreach ($navigation_group['children'] as &$navigation_item ) {
+					if (isset($navigation_item['section']) && in_array($navigation_item['section']['id'], $sections_to_filter))
+					{
+						$section_id = $navigation_item['section']['id'];
+						
+						$field_name = Symphony::Database()->fetchCol("element_name", "SELECT * FROM tbl_fields WHERE `type` = 'parent' AND `parent_section` = $section_id");
+						$navigation_item['link'] .= "?filter=$field_name[0]:0";
+					}
+				}
+			}
+			
+			return $content;
+		}
+		
+		function getSectionsWithParentField(){
+			$sections = Symphony::Database()->fetchCol("parent_section", "SELECT * FROM tbl_fields WHERE `type` = 'parent'");
+			return $sections;
+		}
+		
 	}

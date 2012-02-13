@@ -132,6 +132,42 @@
 			return array($id, $selected, $name);
 		}
 
+		public function fetchAssociatedEntryCount($value){
+			return Symphony::Database()->fetchVar('count', 0, sprintf("
+					SELECT COUNT(*) as `count`
+					FROM `tbl_entries_data_%d`
+					WHERE `relation_id` = %d
+				",
+				$this->get('id'), $value
+			));
+		}
+
+		public function fetchAssociatedEntryIDs($value){
+			return Symphony::Database()->fetchCol('entry_id', sprintf("
+					SELECT `entry_id`
+					FROM `tbl_entries_data_%d`
+					WHERE `relation_id` = %d
+				",
+				$this->get('id'), $value
+			));
+		}
+
+		public function fetchAssociatedEntrySearchValue($data, $field_id=NULL, $parent_entry_id=NULL){
+			// We dont care about $data, but instead $parent_entry_id
+			if(!is_null($parent_entry_id)) return $parent_entry_id;
+
+			if(!is_array($data)) return $data;
+
+			$searchvalue = Symphony::Database()->fetchRow(0, sprintf("
+				SELECT `entry_id` FROM `tbl_entries_data_%d`
+				WHERE `handle` = '%s'
+				LIMIT 1",
+				$field_id, addslashes($data['handle'])
+			));
+
+			return $searchvalue['entry_id'];
+		}
+		
 	/*-------------------------------------------------------------------------
 		Settings:
 	-------------------------------------------------------------------------*/
@@ -181,8 +217,13 @@
 				'field_id' => $id,
 				'identifying_field_id' => $this->get('identifying_field_id')
 			);
+			
+			if(!Symphony::Database()->insert($fields, "tbl_fields_{$handle}", true)) return false;
+			
+			$this->removeSectionAssociation($id);
+			$this->createSectionAssociation(NULL, $id, $this->get('identifying_field_id'), $this->get('show_association') == 'yes' ? true : false);
 
-			return Symphony::Database()->insert($fields, "tbl_fields_{$handle}", true);
+			return true;
 		}
 
 	/*-------------------------------------------------------------------------
@@ -235,6 +276,87 @@
 		Filtering:
 	-------------------------------------------------------------------------*/
 
+		public function buildDSRetrievalSQL($data, &$joins, &$where, $andOperation=false){
+			$field_id = $this->get('id');
+
+			if(preg_match('/^sql:\s*/', $data[0], $matches)) {
+				$data = trim(array_pop(explode(':', $data[0], 2)));
+
+				// Check for NOT NULL (ie. Entries that have any value)
+				if(strpos($data, "NOT NULL") !== false) {
+					$joins .= " LEFT JOIN
+									`tbl_entries_data_{$field_id}` AS `t{$field_id}`
+								ON (`e`.`id` = `t{$field_id}`.entry_id)";
+					$where .= " AND `t{$field_id}`.relation_id IS NOT NULL ";
+
+				}
+				// Check for NULL (ie. Entries that have no value)
+				else if(strpos($data, "NULL") !== false) {
+					$joins .= " LEFT JOIN
+									`tbl_entries_data_{$field_id}` AS `t{$field_id}`
+								ON (`e`.`id` = `t{$field_id}`.entry_id)";
+					$where .= " AND `t{$field_id}`.relation_id IS NULL ";
+
+				}
+			}
+			else {
+				$negation = false;
+				if(preg_match('/^not:/', $data[0])) {
+					$data[0] = preg_replace('/^not:/', null, $data[0]);
+					$negation = true;
+				}
+
+				foreach($data as $key => &$value) {
+					// for now, I assume string values are the only possible handles.
+					// of course, this is not entirely true, but I find it good enough.
+					if(!is_numeric($value) && !is_null($value)){
+						$related_field_ids = $this->get('related_field_id');
+						$id = null;
+
+						foreach($related_field_ids as $related_field_id) {
+							try {
+								$return = Symphony::Database()->fetchCol("id", sprintf(
+									"SELECT
+										`entry_id` as `id`
+									FROM
+										`tbl_entries_data_%d`
+									WHERE
+										`handle` = '%s'
+									LIMIT 1", $related_field_id, Lang::createHandle($value)
+								));
+
+								// Skipping returns wrong results when doing an AND operation, return 0 instead.
+								if(!empty($return)) {
+									$id = $return[0];
+									break;
+								}
+							} catch (Exception $ex) {
+								// Do nothing, this would normally be the case when a handle
+								// column doesn't exist!
+							}
+						}
+
+						$value = (is_null($id)) ? 0 : $id;
+					}
+				}
+
+				if($andOperation) {
+					$condition = ($negation) ? '!=' : '=';
+					foreach($data as $key => $bit){
+						$joins .= " LEFT JOIN `tbl_entries_data_$field_id` AS `t$field_id$key` ON (`e`.`id` = `t$field_id$key`.entry_id) ";
+						$where .= " AND `t$field_id$key`.relation_id $condition '$bit' ";
+					}
+				}
+				else {
+					$condition = ($negation) ? 'NOT IN' : 'IN';
+					$joins .= " LEFT JOIN `tbl_entries_data_$field_id` AS `t$field_id` ON (`e`.`id` = `t$field_id`.entry_id) ";
+					$where .= " AND `t$field_id`.relation_id $condition ('".implode("', '", $data)."') ";
+				}
+
+			}
+
+			return true;
+		}
 		
 
 	}
