@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension id="parent_field" status="released" xmlns="http://symphony-cms.com/schemas/extension/1.0">
+	<name>Parent Field</name>
+	<description>Hierarchically link entries within the same section.</description>
+	<repo type="github">https://github.com/westynz/parent_field</repo>
+	<url type="discuss">http://symphony-cms.com/discuss/thread/84360/</url>
+	<types>
+		<type>Field Types</type>
+	</types>
+	<authors>
+		<author>
+			<name github="westynz" symphony="westynz">James West</name>
+			<website>http://jameswest.co.nz</website>
+		</author>
+	</authors>
+	<releases>
+		<release version="0.2" date="2012-02-14" min="2.2.5" />
+	</releases>
+</extension>
