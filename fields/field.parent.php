@@ -46,6 +46,10 @@
 		public function requiresSQLGrouping(){
 			return false;
 		}
+		
+		public function canPrePopulate() {
+			return true;
+		}
 
 	/*-------------------------------------------------------------------------
 		Setup:
@@ -125,7 +129,9 @@
 			}
 			
 			$selected = false;
-			if($this->get('relation_id') == $id) {
+			if(!isset($_REQUEST['prepopulate'][$this->get('id')]) && $this->get('relation_id') == $id) {
+				$selected = true;
+			} else if (isset($_REQUEST['prepopulate'][$this->get('id')]) && $_REQUEST['prepopulate'][$this->get('id')] == $id) {
 				$selected = true;
 			}
 			
