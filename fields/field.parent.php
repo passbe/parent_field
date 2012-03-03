@@ -6,6 +6,15 @@
 
 		private static $cache = array();
 		private static $em = null;
+		
+		private static $subfields = array(
+			'input',
+			'selectbox',
+			'selectbox_link',
+			'date',
+			'checkbox',
+			'order_entries'
+		);
 
 	/*-------------------------------------------------------------------------
 		Definition:
@@ -82,10 +91,10 @@
 			$identifying_field_id = $this->get('identifying_field_id');
 			
 			if(is_null($parent_id)) {
-				$parent_id = 0;
+				$where = "p.relation_id IS NULL";
+			} else {
+				$where = "p.relation_id = {$parent_id}";
 			}
-			
-			$where = "p.relation_id = {$parent_id}";
 			
 			if($entry_id) {
 				$where .= " AND e.entry_id != {$entry_id}";
@@ -174,10 +183,149 @@
 			return $searchvalue['entry_id'];
 		}
 		
+		public function getIdentifyingFieldId() {
+			return $this->get('identifying_field_id');
+		}
+		
+		public function getParentsArray($entry_id) {
+			$items = array();
+			
+			$fieldId = $this->get('id');
+			
+			$data = Symphony::Database()->fetchRow(0, "
+				SELECT
+					*
+				FROM
+					`tbl_entries_data_{$fieldId}` AS parent
+				WHERE
+					parent.entry_id = '{$entry_id}'
+				LIMIT 1
+			");
+
+			if (!is_null($data['relation_id'])) {
+				$next_parent = $data['relation_id'];
+
+				while (
+					$parent = Symphony::Database()->fetchRow(0, "
+						SELECT
+							*
+						FROM
+							`tbl_entries_data_{$fieldId}` AS parent
+						WHERE
+							parent.entry_id = '{$next_parent}'
+						LIMIT 1
+					")
+				) {
+					array_unshift($items, $parent['entry_id']);
+					$next_parent = $parent['relation_id'];
+				}
+			}
+			
+			return $items;
+		}
+		
+		private function _getParent($entry_id) {
+			return self::$em->fetch($entry_id);
+		}
+		
+		private function _getParents($entry_id, &$tree=array()) {
+			$entry = self::$em->fetch($entry_id);
+			
+			if(!empty($entry)) {
+				$tree = array(
+					'object' => $entry[0],
+					'children' => $tree
+				);
+				
+				$parent_field = $entry[0]->getData($this->get('id'));
+				
+				if(isset($parent_field['relation_id'])) {
+					$this->_getParents($parent_field['relation_id'], $tree);
+				}
+			}
+		
+			return $tree;
+		}
+		
+		private function _parentsToXml($parent, &$wrapper) {
+			if($parent['object'] instanceof Entry) {
+				$parentXML = $this->_buildEntryXML($parent['object']);
+				
+				if(isset($parent['children'])) {
+					$children = new XMLElement('children');
+				
+					$this->_parentsToXml($parent['children'], $children);
+					
+					$parentXML->appendChild($children);
+				}
+				
+				$wrapper->appendChild($parentXML);
+			}
+		}
+		
+		private function _getChildren($entry_id, $recursive=false) {
+			$children = Symphony::Database()->fetch("SELECT * FROM `tbl_entries_data_".$this->get('id')."` AS e WHERE e.relation_id = '{$entry_id}'");
+		
+			if(!empty($children)) {
+				foreach($children as $child) {
+					$entry = self::$em->fetch($child['entry_id']);
+					
+					$out['object'] = $entry[0];
+					
+					if($recursive) {
+						$out['children'] = $this->_getChildren($child['entry_id'], true);
+					}
+					
+					$items[] = $out;
+				}
+			}
+		
+			return $items;
+		}
+		
+		private function _childrenToXml($items, &$wrapper) {
+			if(empty($items)) return;
+			
+			foreach($items as $parent) {
+				if($parent['object'] instanceof Entry) {
+					$parentXML = $this->_buildEntryXML($parent['object']);
+					
+					if(isset($parent['children'])) {
+						$children = new XMLElement('children');
+					
+						$this->_childrenToXml($parent['children'], $children);
+						
+						$parentXML->appendChild($children);
+					}
+					
+					$wrapper->appendChild($parentXML);
+				}
+			}
+		}
+		
+		private function _buildEntryXML(Entry $entry) {
+			$entryXML = new XMLElement('entry', null, array('id' => $entry->get('id')));
+			
+			$section_id = $entry->get('section_id');
+			
+			$fields = self::$em->fieldManager->fetch(null, $section_id);// Possibly don't need all fields... Other DS's should probably do this
+			
+			// lets get some core fields that may be helpful
+			//$fields = array_merge($fields, array(self::$em->fieldManager->fetch($this->get('identifying_field_id'), $section_id)));
+			//$fields = array_merge($fields, self::$em->fieldManager->fetch(null, $section_id, null, 'sortorder', 'input'));
+			
+			foreach($fields as $field) {
+				if(in_array($field->get('type'), self::$subfields) || $field->get('id') == $this->get('identifying_field_id')) {
+					$field->appendFormattedElement($entryXML, $entry->getData($field->get('id')), false, null, $entry->get('id'));
+				}
+			}
+		
+			return $entryXML;
+		}
+		
 	/*-------------------------------------------------------------------------
 		Settings:
 	-------------------------------------------------------------------------*/
-
 		
 		public function displaySettingsPanel(&$wrapper, $errors=NULL){
 			parent::displaySettingsPanel($wrapper, $errors);
@@ -266,8 +414,12 @@
 			$status = self::__OK__;
 
 			if(empty($data)) return null;
+			
+			if($data['relation_id'] == 0 || $data['relation_id'] == '') {
+				$data['relation_id'] = null;
+			}
 
-			$result['relation_id'] = (int)$data['relation_id'];
+			$result['relation_id'] = $data['relation_id'];
 
 			return $result;
 		}
@@ -275,8 +427,65 @@
 	/*-------------------------------------------------------------------------
 		Output:
 	-------------------------------------------------------------------------*/
+	
+		public function appendFormattedElement(&$wrapper, $data, $encode = false, $mode = null, $entry_id=null) {
+			if(is_null($mode)) {
+				$mode = 'parent';
+			}
 
+			$mode = General::createHandle($mode);
+			
+			
+			
+			if($mode == 'children-recursive') {
+				$list = new XMLElement('children', null, array('mode' => 'recursive'));
+			} else {
+				$list = new XMLElement($mode);
+			}
+			
+			switch($mode) {
+				case 'parent';
+					if(!is_array($data) || empty($data) || is_null($data['relation_id'])) return;
+					$parent = $this->_getParent($data['relation_id']);
+					
+					if($parent[0]) {
+						$parentXML = $this->_buildEntryXML($parent[0]);
+						$list->appendChild($parentXML);
+					}
+				break;
+				case 'parents';
+					if(!is_array($data) || empty($data) || is_null($data['relation_id'])) return;
+					$parents = $this->_getParents($data['relation_id']);
+					$this->_parentsToXml($parents, $list);
+				break;
+				case 'children';
+					$children = $this->_getChildren($entry_id);
+					$this->_childrenToXml($children, $list);
+				break;
+				case 'children-recursive';
+					$children = $this->_getChildren($entry_id, true);
+					$this->_childrenToXml($children, $list);
+				break;
+				default:
+				break;
+			}
+
+			$wrapper->appendChild($list);
+		}
+	
+		public function fetchIncludableElements($break = false) {
+			$name = $this->get('element_name');
 		
+			$includable = array(
+				$name . ': parent',
+				$name . ': parents',
+				//$name . ': siblings',
+				$name . ': children',
+				$name . ': children (recursive)'
+			);
+			
+			return $includable;
+		}
 
 	/*-------------------------------------------------------------------------
 		Filtering:
@@ -284,6 +493,10 @@
 
 		public function buildDSRetrievalSQL($data, &$joins, &$where, $andOperation=false){
 			$field_id = $this->get('id');
+			
+			if($data[0] == 'null') {
+				$data[0] = 'sql:NULL';
+			}
 
 			if(preg_match('/^sql:\s*/', $data[0], $matches)) {
 				$data = trim(array_pop(explode(':', $data[0], 2)));

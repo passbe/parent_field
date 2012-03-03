@@ -81,7 +81,7 @@
 						$section_id = $navigation_item['section']['id'];
 						
 						$field_name = Symphony::Database()->fetchCol("element_name", "SELECT * FROM tbl_fields WHERE `type` = 'parent' AND `parent_section` = $section_id");
-						$navigation_item['link'] .= "?filter=$field_name[0]:0";
+						$navigation_item['link'] .= "?filter=$field_name[0]:null";
 					}
 				}
 			}
