@@ -20,8 +20,8 @@
 		Definition:
 	-------------------------------------------------------------------------*/
 
-		public function __construct(&$parent){
-			parent::__construct($parent);
+		public function __construct(){
+			parent::__construct();
 			$this->_name = __('Parent Field');
 			$this->_required = true;
 			$this->_showassociation = true;
